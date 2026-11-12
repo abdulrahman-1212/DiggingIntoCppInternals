@@ -1,104 +1,138 @@
-#include <iostream>
+#include "AVX_Vectorized_Operations.hpp"
+
+#include <cmath>
 #include <immintrin.h>
+#include <limits>
 
-using namespace std;
-
-
-void sub_avx2(float* a, float* b, float* result, size_t n) {
-    for (size_t i = 0; i < n; i += 8) {
-        __m256 va = _mm256_loadu_ps(&a[i]);
-        __m256 vb = _mm256_loadu_ps(&b[i]);
-        __m256 vr = _mm256_sub_ps(va, vb);
-        _mm256_storeu_ps(&result[i], vr);
+void add_avx(const float* a, const float* b, float* result, std::size_t n) {
+    // Precondition: n is divisible by 8.
+    for (std::size_t i = 0; i < n; i += 8) {
+        const __m256 va = _mm256_loadu_ps(a + i);
+        const __m256 vb = _mm256_loadu_ps(b + i);
+        const __m256 vr = _mm256_add_ps(va, vb);
+        _mm256_storeu_ps(result + i, vr);
     }
 }
 
-void add_avx2(float* a, float* b, float* result, size_t n) {
-    for (size_t i = 0; i < n; i += 8) {
-        __m256 va = _mm256_loadu_ps(&a[i]);
-        __m256 vb = _mm256_loadu_ps(&b[i]);
-        __m256 vr = _mm256_add_ps(va, vb);
-        _mm256_storeu_ps(&result[i], vr);
+void sub_avx(const float* a, const float* b, float* result, std::size_t n) {
+    // Precondition: n is divisible by 8.
+    for (std::size_t i = 0; i < n; i += 8) {
+        const __m256 va = _mm256_loadu_ps(a + i);
+        const __m256 vb = _mm256_loadu_ps(b + i);
+        const __m256 vr = _mm256_sub_ps(va, vb);
+        _mm256_storeu_ps(result + i, vr);
     }
 }
 
-void add_avx_scalar_cleanup(float* a, float* b, float* result, size_t n)  {
-    size_t i;
-    for (i = 0; i + 8 < n; i += 8) {
-        __m256 va = _mm256_loadu_ps(&a[i]);
-        __m256 vb = _mm256_loadu_ps(&b[i]);
-        __m256 vr = _mm256_add_ps(va, vb);
-        _mm256_storeu_ps(&result[i], vr);
+void add_avx_cleanup(const float* a, const float* b, float* result, std::size_t n) {
+    std::size_t i = 0;
+    for (; i + 8 <= n; i += 8) {
+        const __m256 va = _mm256_loadu_ps(a + i);
+        const __m256 vb = _mm256_loadu_ps(b + i);
+        const __m256 vr = _mm256_add_ps(va, vb);
+        _mm256_storeu_ps(result + i, vr);
     }
 
-    for (; i < n; i++) {
+    for (; i < n; ++i) {
         result[i] = a[i] + b[i];
     }
 }
 
-void sub_avx_scalar_cleanup(float* a, float* b, float* result, size_t n)  {
-    size_t i;
-    for (i = 0; i + 8 < n; i += 8) {
-        __m256 va = _mm256_loadu_ps(&a[i]);
-        __m256 vb = _mm256_loadu_ps(&b[i]);
-        __m256 vr = _mm256_sub_ps(va, vb);
-        _mm256_storeu_ps(&result[i], vr);
+void sub_avx_cleanup(const float* a, const float* b, float* result, std::size_t n) {
+    std::size_t i = 0;
+    for (; i + 8 <= n; i += 8) {
+        const __m256 va = _mm256_loadu_ps(a + i);
+        const __m256 vb = _mm256_loadu_ps(b + i);
+        const __m256 vr = _mm256_sub_ps(va, vb);
+        _mm256_storeu_ps(result + i, vr);
     }
 
-    for (; i < n; i++) {
+    for (; i < n; ++i) {
         result[i] = a[i] - b[i];
     }
 }
 
-void add_avx_scalar_cleanup_with_overflow(float* a, float* b, float* result, size_t n) {
-    size_t i = 0;
-    __m256 inf = _mm256_set1_ps(numeric_limits<float>::infinity());
-    __m256 sign_mask =  _mm256_set1_ps(-0.0f);
+void add_avx_overflow(const float* a, const float* b, float* out, std::size_t n)
+{
+    const __m256 inf = _mm256_set1_ps(INFINITY);
+    const __m256 zero = _mm256_setzero_ps();
 
-    for (; i + 8 <= n; i += 8) {
-        __m256 va = _mm256_loadu_ps(&a[i]);
-        __m256 vb = _mm256_loadu_ps(&b[i]);
-        __m256 vr = _mm256_add_ps(va, vb);
+    std::size_t i = 0;
 
-        __m256 abs_result = _mm256_andnot_ps(sign_mask, vr);
-        __m256 comparison = _mm256_cmp_ps(abs_result, inf, _CMP_EQ_OQ);
+    for (; i + 8 <= n; i += 8){
+        const __m256 va = _mm256_loadu_ps(a + i);
+        const __m256 vb = _mm256_loadu_ps(b + i);
 
-        int mask = _mm256_movemask_ps(comparison);
+        const __m256 result = _mm256_add_ps(va, vb);
 
-        if (mask != 0) {
-            for (int j = 0; j < 8; j++) {
-                if (mask & (1 << j)) {
-                    std::cout << "Overflow at index: " << i + j << std::endl;
-                }
-            }
+        _mm256_storeu_ps(out + i, result);
+
+        // Check whether the result is infinity.
+        const __m256 result_abs = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), result);
+
+        const __m256 is_inf = _mm256_cmp_ps(result_abs, inf, _CMP_EQ_OQ);
+
+        const __m256 a_abs = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), va);
+        const __m256 b_abs = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), vb);
+
+        const __m256 a_finite = _mm256_cmp_ps(a_abs, inf, _CMP_LT_OQ);
+        const __m256 b_finite = _mm256_cmp_ps(b_abs, inf, _CMP_LT_OQ);
+
+        const __m256 overflow = _mm256_and_ps(
+            is_inf, _mm256_and_ps(a_finite, b_finite)
+        );
+
+        if (_mm256_movemask_ps(overflow) != 0){
+            std::cout << "Warning: Addition overflow detected!\n";
         }
-
-        _mm256_storeu_ps(&result[i], vr);
     }
 
-    // Scalar cleanup
-    for (; i < n; i++) {
-        result[i] = a[i] + b[i];
+    // Scalar cleanup.
+    for (; i < n; ++i){
+        out[i] = a[i] + b[i];
 
-        if (std::isinf(result[i])) {
-            std::cout << "Overflow at index " << i << '\n';
+        if (std::isfinite(a[i]) && std::isfinite(b[i]) &&
+            std::isinf(out[i]))
+        {
+            std::cout << "Warning: Addition overflow detected!\n";
         }
     }
 }
 
-int main() {
-    __m256 evens = _mm256_set_ps(2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0);
-    __m256 odds = _mm256_set_ps(1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0);
+void sub_avx_overflow(const float *a, const float *b, float *result, std::size_t n) {
+    const __m256 inf = _mm256_set1_ps(INFINITY);
+    const __m256 sign_mask = _mm256_set1_ps(-0.0f);
 
-    __m256 result = _mm256_sub_ps(evens, odds);
+    std::size_t i;
 
-    float *f = (float*)&result;
-    cout << "Result: ";
-    for (int i = 0; i < 8; i++) {
-        cout << f[i] << " ";
+    for (i = 0; i + 8 < n; i += 8) {
+        const __m256 va = _mm256_loadu_ps(a + i);
+        const __m256 vb = _mm256_loadu_ps(b + i);
+
+        const __m256 vr = _mm256_sub_ps(va, vb);
+        
+        _mm256_storeu_ps(result + i, vr);
+
+        const __m256 abs_result = _mm256_andnot_ps(sign_mask, result);
+        const __m256 a_abs = _mm256_andnot_ps(sign_mask, va);
+        const __m256 b_abs = _mm256_andnot_ps(sign_mask, vb);
+
+        const __m256 a_finite = _mm256_cmp_ps(a_abs, inf, _CMP_LT_OQ);
+        const __m256 b_finite = _mm256_cmp_ps(b_abs, inf, _CMP_LT_OQ);
+        const __m256 result_inf = _mm256_cmp_ps(result_abs, inf, _CMP_EQ_OQ);
+
+        const __m256 overflow = _mm256_and_ps(result_inf, a_finite, b_finite);
+
+        if (_mm256_movemask_ps(overflow) != 0) {
+            std::cout << "Warning: Subtraction overflow detected!\n";
+        }
     }
 
-    cout << endl;
-
-    return 0;
+    // scalar cleanup
+    for(; i < n; i++) {
+        result[i] = a[i] - b[i];
+        if(std::isfinite(a[i]) && std::isfinite(b[i]) && std::isinf(result[i])) {
+            std::cout << "Warning: Subtraction overflow detected!\n";
+        }
+    }
 }
