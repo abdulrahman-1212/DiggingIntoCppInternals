@@ -1,25 +1,16 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.16)
+project(lisan CXX)
 
-project(lisan LANGUAGES C CXX)
-
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(LLVM REQUIRED CONFIG)
-
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-message(STATUS "LLVM_DIR: ${LLVM_DIR}")
+find_package(LLVM 14 REQUIRED CONFIG)
+message(STATUS "Found LLVM ${LLVM_PACAGE_VERSION}")
 
 include_directories(${LLVM_INCLUDE_DIRS})
 add_definitions(${LLVM_DEFINITIONS})
 
-add_executable(lisan
-    src/main.cpp
-)
+add_executable((lisan src/main.cpp))
 
-llvm_map_components_to_libnames(LLVM_LIBS
-    Core
-    Support
-)
-
+llvm_map_components_to_libnames(LLVM_LIBS core support passes native)
 target_link_libraries(lisan PRIVATE ${LLVM_LIBS})
